@@ -1,0 +1,490 @@
+==================
+Actual as an identifier
+==================
+
+
+fun foo() {
+  val actual = IntArray(n)
+  actual[0]++
+}
+
+---
+(source_file
+  (function_declaration
+  (simple_identifier)
+  (function_value_parameters)
+  (function_body
+    (statements
+    (property_declaration
+      (binding_pattern_kind)
+      (variable_declaration
+      (simple_identifier))
+      (call_expression
+      (simple_identifier)
+      (call_suffix
+        (value_arguments
+        (value_argument
+          (simple_identifier))))))
+    (postfix_expression
+      (indexing_expression
+      (simple_identifier)
+      (indexing_suffix
+        (integer_literal))))))))
+
+================================================================================
+by as a standalone identifier expression statement
+================================================================================
+
+fun foo() {
+  val by = 1
+  println(by)
+  by
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (simple_identifier)))))
+        (simple_identifier)))))
+
+================================================================================
+by as receiver of a navigation expression after a newline
+================================================================================
+
+fun foo() {
+  val x = doSomething()
+  by.let { it }
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (simple_identifier)
+            (call_suffix
+              (value_arguments))))
+        (call_expression
+          (navigation_expression
+            (simple_identifier)
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (annotated_lambda
+              (lambda_literal
+                (statements
+                  (simple_identifier))))))))))
+
+================================================================================
+by as a function call after a newline (silent misparse on branch)
+================================================================================
+
+fun foo() {
+  val x = 1
+  by()
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))))))
+
+================================================================================
+by as a function call with arg after a newline (silent misparse on branch)
+================================================================================
+
+fun foo() {
+  val a: Int = 1
+  by(a)
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier)
+            (user_type
+              (type_identifier)))
+          (integer_literal))
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (simple_identifier)))))))))
+
+================================================================================
+by as left operand of an additive expression after a newline (silent misparse on branch)
+================================================================================
+
+fun foo() {
+  someFunc()
+  by + 1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (additive_expression
+          (simple_identifier)
+          (integer_literal))))))
+
+================================================================================
+catch as left operand of an additive expression after a newline
+================================================================================
+
+fun foo() {
+  bar()
+  catch + 1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (additive_expression
+          (simple_identifier)
+          (integer_literal))))))
+
+================================================================================
+finally as left operand of an additive expression after a newline
+================================================================================
+
+fun foo() {
+  bar()
+  finally + 1
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (additive_expression
+          (simple_identifier)
+          (integer_literal))))))
+
+================================================================================
+catch divided after a newline
+================================================================================
+
+fun foo() {
+  bar()
+  catch / 2
+}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (multiplicative_expression
+          (simple_identifier)
+          (integer_literal))))))
+
+================================================================================
+where as an identifier at the start of a statement
+================================================================================
+
+fun f() {
+    val x = 1
+    where?.let { println(it) }
+    where = predicate
+    where.foo()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (call_expression
+          (navigation_expression
+            (simple_identifier)
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (annotated_lambda
+              (lambda_literal
+                (statements
+                  (call_expression
+                    (simple_identifier)
+                    (call_suffix
+                      (value_arguments
+                        (value_argument
+                          (simple_identifier))))))))))
+        (assignment
+          (directly_assignable_expression
+            (simple_identifier))
+          (simple_identifier))
+        (call_expression
+          (navigation_expression
+            (simple_identifier)
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (value_arguments)))))))
+
+================================================================================
+Type constraints on the line after the declaration
+================================================================================
+
+fun <T> g(x: T): T
+    where T : Comparable<T> = x
+
+class Box<T, U>
+    // comment
+    where T : Any,
+          @A U : Any
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters
+      (parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (user_type
+      (type_identifier))
+    (type_constraints
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier)
+          (type_arguments
+            (type_projection
+              (user_type
+                (type_identifier)))))))
+    (function_body
+      (simple_identifier)))
+  (class_declaration
+    (type_identifier)
+    (type_parameters
+      (type_parameter
+        (type_identifier))
+      (type_parameter
+        (type_identifier)))
+    (line_comment)
+    (type_constraints
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier)))
+      (type_constraint
+        (annotation
+          (user_type
+            (type_identifier)))
+        (type_identifier)
+        (user_type
+          (type_identifier))))))
+
+================================================================================
+Comments between where and a type constraint
+================================================================================
+
+fun <T> f(x: T): T
+    where /* bound */ T : Comparable<T> = x
+
+fun <T> g(x: T): T
+    where
+        // bound
+        T : Comparable<T> = x
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters
+      (parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (user_type
+      (type_identifier))
+    (type_constraints
+      (multiline_comment)
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier)
+          (type_arguments
+            (type_projection
+              (user_type
+                (type_identifier)))))))
+    (function_body
+      (simple_identifier)))
+  (function_declaration
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters
+      (parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier))))
+    (user_type
+      (type_identifier))
+    (type_constraints
+      (line_comment)
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier)
+          (type_arguments
+            (type_projection
+              (user_type
+                (type_identifier)))))))
+    (function_body
+      (simple_identifier))))
+
+================================================================================
+Identifiers that start with a keyword and continue with non-ASCII letters
+================================================================================
+
+fun f() {
+    val x = foo()
+    asıl = 5
+    whereÄ.bar()
+}
+
+fun <T> g(): T
+    where Ä : Any = TODO()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (call_expression
+            (simple_identifier)
+            (call_suffix
+              (value_arguments))))
+        (assignment
+          (directly_assignable_expression
+            (simple_identifier))
+          (integer_literal))
+        (call_expression
+          (navigation_expression
+            (simple_identifier)
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (value_arguments))))))
+  (function_declaration
+    (type_parameters
+      (type_parameter
+        (type_identifier)))
+    (simple_identifier)
+    (function_value_parameters)
+    (user_type
+      (type_identifier))
+    (type_constraints
+      (type_constraint
+        (type_identifier)
+        (user_type
+          (type_identifier))))
+    (function_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))))

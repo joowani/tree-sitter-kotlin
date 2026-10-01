@@ -1,0 +1,748 @@
+================================================================================
+Dot after newline
+================================================================================
+
+bar.foo()
+   .show()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (call_expression
+    (navigation_expression
+      (call_expression
+        (navigation_expression
+          (simple_identifier)
+          (navigation_suffix
+            (simple_identifier)))
+        (call_suffix
+          (value_arguments)))
+      (navigation_suffix
+        (simple_identifier)))
+    (call_suffix
+      (value_arguments))))
+
+================================================================================
+Eq after newline
+================================================================================
+
+fun foo()
+    = 1
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (integer_literal))))
+
+================================================================================
+Binary operator after newline
+================================================================================
+
+
+fun foo()  {
+  val bar = x
+         && y
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (conjunction_expression
+            (simple_identifier)
+            (simple_identifier)))))))
+
+================================================================================
+Open brace after newline
+================================================================================
+
+fun foo():String
+    { return "bar"}
+
+---
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (user_type
+      (type_identifier))
+    (function_body
+      (statements
+        (jump_expression
+          (string_literal
+            (string_content)))))))
+
+================================================================================
+Colon after newline
+================================================================================
+
+class Foo
+    : Bar {
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (user_type
+        (type_identifier)))
+    (class_body)))
+
+================================================================================
+Question mark after newline
+================================================================================
+
+
+fun foo() {
+   val foo = a?.bar(true)
+             ?: x.foo()
+             ?: break
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (elvis_expression
+            (elvis_expression
+              (call_expression
+                (navigation_expression
+                  (simple_identifier)
+                  (navigation_suffix
+                    (simple_identifier)))
+                (call_suffix
+                  (value_arguments
+                    (value_argument
+                      (boolean_literal)))))
+              (call_expression
+                (navigation_expression
+                  (simple_identifier)
+                  (navigation_suffix
+                    (simple_identifier)))
+                (call_suffix
+                  (value_arguments))))
+            (jump_expression)))))))
+
+================================================================================
+get after newline
+================================================================================
+class Foo {
+     val maxMemory: Long
+     get() = bar() / 1024
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier))))
+      (getter
+        (function_body
+          (multiplicative_expression
+            (call_expression
+              (simple_identifier)
+              (call_suffix
+                (value_arguments)))
+            (integer_literal)))))))
+
+================================================================================
+Newline in function call
+================================================================================
+
+// The Kotlin grammar does not allow newlines/semicolons in function calls,
+// but tree-sitter uses context-aware lexing to overcome this.
+
+foo(1,
+    2)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (line_comment)
+  (line_comment)
+  (call_expression
+    (simple_identifier)
+    (call_suffix
+      (value_arguments
+        (value_argument
+          (integer_literal))
+        (value_argument
+          (integer_literal))))))
+
+================================================================================
+Else after newline
+================================================================================
+
+if (!foo) 3
+else boo()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_expression
+    condition: (prefix_expression
+      (simple_identifier))
+    consequence: (control_structure_body
+      (integer_literal))
+    alternative: (control_structure_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))))
+
+================================================================================
+Else on the same line
+================================================================================
+
+if (!foo) 3 else boo()
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_expression
+    condition: (prefix_expression
+      (simple_identifier))
+    consequence: (control_structure_body
+      (integer_literal))
+    alternative: (control_structure_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (value_arguments))))))
+
+================================================================================
+Line comment before dot in method chain
+================================================================================
+
+val x = listOf(1)
+    // comment
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Block comment before dot in method chain
+================================================================================
+
+val x = listOf(1)
+    /* block comment */
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Multiple comments before dot in method chain
+================================================================================
+
+val x = listOf(1)
+    // first comment
+    // second comment
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (line_comment)
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Comment before safe navigation
+================================================================================
+
+val x = foo
+    // comment before safe nav
+    ?.bar()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (simple_identifier)
+        (line_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Mixed line and block comments before dot
+================================================================================
+
+val x = listOf(1)
+    // line comment
+    /* block comment */
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (line_comment)
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Nested block comment before dot
+================================================================================
+
+val x = listOf(1)
+    /* outer /* inner */ still outer */
+    .reversed()
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (call_expression
+      (navigation_expression
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (integer_literal)))))
+        (multiline_comment)
+        (navigation_suffix
+          (simple_identifier)))
+      (call_suffix
+        (value_arguments)))))
+
+================================================================================
+Comment between unrelated statements (ASI should still work)
+================================================================================
+
+val x = 1
+// comment
+val y = 2
+
+---
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal))
+  (line_comment)
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal)))
+
+================================================================================
+ASI before statement-initial paren (lirp shape)
+================================================================================
+
+fun f() {
+    val t1 = 5
+    (t1 as X).title = "C"
+    "b"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (assignment
+          (directly_assignable_expression
+            (parenthesized_expression
+              (as_expression
+                (simple_identifier)
+                (user_type
+                  (type_identifier))))
+            (navigation_suffix
+              (simple_identifier)))
+          (string_literal
+            (string_content)))
+        (string_literal
+          (string_content))))))
+
+================================================================================
+Explicit semicolon is equivalent to ASI before statement-initial paren
+================================================================================
+
+fun f() {
+    val t1 = 5;
+    (t1 as X).title = "C"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (assignment
+          (directly_assignable_expression
+            (parenthesized_expression
+              (as_expression
+                (simple_identifier)
+                (user_type
+                  (type_identifier))))
+            (navigation_suffix
+              (simple_identifier)))
+          (string_literal
+            (string_content)))))))
+
+================================================================================
+ASI before statement-initial paren in class-body lambda (StringSpec shape)
+================================================================================
+
+class ProjectionTest : StringSpec({
+    "mutate grouping field" {
+        val projection = projectionOf({ playlist.audioItems }, { it.title })
+
+        (t1 as MutableAudioItem).title = "Classical"
+        playlist.audioItems.remove(t1)
+    }
+})
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (constructor_invocation
+        (user_type
+          (type_identifier))
+        (value_arguments
+          (value_argument
+            (lambda_literal
+              (statements
+                (call_expression
+                  (string_literal
+                    (string_content))
+                  (call_suffix
+                    (annotated_lambda
+                      (lambda_literal
+                        (statements
+                          (property_declaration
+                            (binding_pattern_kind)
+                            (variable_declaration
+                              (simple_identifier))
+                            (call_expression
+                              (simple_identifier)
+                              (call_suffix
+                                (value_arguments
+                                  (value_argument
+                                    (lambda_literal
+                                      (statements
+                                        (navigation_expression
+                                          (simple_identifier)
+                                          (navigation_suffix
+                                            (simple_identifier))))))
+                                  (value_argument
+                                    (lambda_literal
+                                      (statements
+                                        (navigation_expression
+                                          (simple_identifier)
+                                          (navigation_suffix
+                                            (simple_identifier))))))))))
+                          (assignment
+                            (directly_assignable_expression
+                              (parenthesized_expression
+                                (as_expression
+                                  (simple_identifier)
+                                  (user_type
+                                    (type_identifier))))
+                              (navigation_suffix
+                                (simple_identifier)))
+                            (string_literal
+                              (string_content)))
+                          (call_expression
+                            (navigation_expression
+                              (navigation_expression
+                                (simple_identifier)
+                                (navigation_suffix
+                                  (simple_identifier)))
+                              (navigation_suffix
+                                (simple_identifier)))
+                            (call_suffix
+                              (value_arguments
+                                (value_argument
+                                  (simple_identifier))))))))))))))))))
+
+================================================================================
+Bare parenthesized identifier at statement start
+================================================================================
+
+fun f() {
+    (t1).title = "C"
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (assignment
+          (directly_assignable_expression
+            (parenthesized_expression
+              (simple_identifier))
+            (navigation_suffix
+              (simple_identifier)))
+          (string_literal
+            (string_content)))))))
+
+================================================================================
+Continuations across newlines that stay legal (regression pins)
+================================================================================
+
+val x:
+    (Int) -> Unit = f
+
+class A :
+    B()
+
+fun g() {
+    x =
+        (1)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier)
+      (function_type
+        (function_type_parameters
+          (user_type
+            (type_identifier)))
+        (user_type
+          (type_identifier))))
+    (simple_identifier))
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (constructor_invocation
+        (user_type
+          (type_identifier))
+        (value_arguments))))
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (assignment
+          (directly_assignable_expression
+            (simple_identifier))
+          (parenthesized_expression
+            (integer_literal)))))))
+
+================================================================================
+ASI still fires before non-constructor parens after a class header
+================================================================================
+
+class Door
+(t1 as X).title = "C"
+
+class Empty
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier))
+  (assignment
+    (directly_assignable_expression
+      (parenthesized_expression
+        (as_expression
+          (simple_identifier)
+          (user_type
+            (type_identifier))))
+      (navigation_suffix
+        (simple_identifier)))
+    (string_literal
+      (string_content)))
+  (class_declaration
+    (type_identifier)))
+
+================================================================================
+Statements that start with [ or ::
+================================================================================
+
+fun f(pair: List<Int>) {
+    println()
+    [val first, val second] = pair
+    ::f.invoke(pair)
+    first
+        .plus(second)
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters
+      (parameter
+        (simple_identifier)
+        (user_type
+          (type_identifier)
+          (type_arguments
+            (type_projection
+              (user_type
+                (type_identifier)))))))
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (destructuring_declaration
+          (multi_variable_declaration
+            (variable_declaration
+              (binding_pattern_kind)
+              (simple_identifier))
+            (variable_declaration
+              (binding_pattern_kind)
+              (simple_identifier)))
+          (simple_identifier))
+        (call_expression
+          (navigation_expression
+            (callable_reference
+              (simple_identifier))
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (simple_identifier)))))
+        (call_expression
+          (navigation_expression
+            (simple_identifier)
+            (navigation_suffix
+              (simple_identifier)))
+          (call_suffix
+            (value_arguments
+              (value_argument
+                (simple_identifier)))))))))

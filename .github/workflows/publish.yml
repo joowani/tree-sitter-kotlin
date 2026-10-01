@@ -1,0 +1,102 @@
+name: publish
+
+run-name: Publish v${{ github.event.client_payload.version }}
+
+on:
+  # Send event_type=publish with client_payload.version through the repository dispatch API.
+  repository_dispatch:
+    types: [publish]
+
+concurrency:
+  group: publish-${{ github.event.client_payload.version }}
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ github.event.client_payload.version }}
+
+jobs:
+  check:
+    name: Check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/check.yml
+
+  publish-crate:
+    name: Publish Crate
+    needs: check
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate release source
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          expected_ref="refs/heads/$DEFAULT_BRANCH"
+          if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
+              echo "release resolved to $GITHUB_REF instead of $expected_ref" >&2
+              exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Validate version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          scripts/publish --check "$VERSION"
+          if tag_ref_response="$(gh api --include "repos/$GH_REPO/git/ref/tags/v$VERSION" 2>&1)"; then
+              if ! tag_commit="$(gh api "repos/$GH_REPO/commits/v$VERSION" --jq .sha)"; then
+                  echo "tag v$VERSION exists but its commit could not be resolved" >&2
+                  exit 1
+              fi
+              if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+                  echo "tag v$VERSION points to $tag_commit instead of $GITHUB_SHA" >&2
+                  exit 1
+              fi
+          elif ! grep -qE '^HTTP/[0-9.]+ 404 ' <<<"$tag_ref_response"; then
+              echo "GitHub could not confirm whether tag v$VERSION exists" >&2
+              printf '%s\n' "$tag_ref_response" >&2
+              exit 1
+          fi
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Authenticate to crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: scripts/publish "$VERSION"
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: publish-crate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Tag the commit and publish the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+              echo "release v$VERSION already exists; nothing to do"
+          elif gh api "repos/$GH_REPO/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+              gh release create "v$VERSION" --verify-tag --title "v$VERSION" --generate-notes
+          else
+              gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
+          fi

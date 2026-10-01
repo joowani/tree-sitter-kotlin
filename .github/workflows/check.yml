@@ -1,0 +1,73 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          cache: npm
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Install Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: '1.26.0'
+          cache: true
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      # The generated parser is committed, so regenerating it must not change anything.
+      - name: Verify generated parser
+        run: |
+          npx --no-install tree-sitter generate
+          git status --porcelain -- src
+          test -z "$(git status --porcelain -- src)"
+
+      - name: Check parser size
+        run: |
+          size_mib="$(( $(du -sk src/parser.c | cut -f1) / 1024 ))"
+          echo "src/parser.c is $size_mib MiB"
+          if (( size_mib > 60 )); then
+              echo "src/parser.c is larger than the 60 MiB limit" >&2
+              exit 1
+          fi
+
+      - name: Test grammar
+        run: npx --no-install tree-sitter test
+
+      - name: Test Node binding
+        run: npm run test:node
+
+      # Without target flags, `cargo test` also runs the doc test in bindings/rust/lib.rs.
+      - name: Test Rust binding
+        run: cargo test --locked
+
+      - name: Test Go binding
+        run: go test -mod=readonly ./...
+
+      - name: Verify crate package
+        run: cargo publish --locked --dry-run

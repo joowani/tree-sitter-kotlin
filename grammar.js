@@ -1,0 +1,1779 @@
+const PREC = {
+  POSTFIX: 16,
+  PREFIX: 15,
+  TYPE_RHS: 14,
+  AS: 13,
+  MULTIPLICATIVE: 12,
+  ADDITIVE: 11,
+  RANGE: 10,
+  INFIX: 9,
+  ELVIS: 8,
+  CHECK: 7,
+  COMPARISON: 6,
+  EQUALITY: 5,
+  CONJUNCTION: 4,
+  DISJUNCTION: 3,
+  VAR_DECL: 3,
+  SPREAD: 2,
+  SIMPLE_USER_TYPE: 2,
+  MODIFIERS: 1,
+  ASSIGNMENT: 1,
+  BLOCK: 1,
+  ARGUMENTS: 1,
+  LAMBDA_LITERAL: 0,
+  RETURN_OR_THROW: 0,
+  COMMENT: 0
+};
+const DEC_DIGITS = token(sep1(/[0-9]+/, /_+/));
+const HEX_DIGITS = token(sep1(/[0-9a-fA-F]+/, /_+/));
+const BIN_DIGITS = token(sep1(/[01]+/, /_+/));
+const REAL_EXPONENT = token(seq(/[eE]/, optional(/[+-]/), DEC_DIGITS));
+
+export default grammar({
+  name: "kotlin",
+
+  conflicts: $ => [
+    // Ambiguous when used in an explicit delegation expression,
+    // since the '{' could either be interpreted as the class body
+    // or as the anonymous function body. Consider the following sequence:
+
+    // Member access operator '::' conflicts with callable reference
+    [$._primary_expression, $.callable_reference],
+
+    // At the start of a lambda, `(x` or `[x` may begin destructured lambda parameters or a parenthesized expression
+    // (`{ (f)(x) }`), and `(val a` may begin parameters or a full-form destructuring statement. The token after the
+    // closing bracket (`->` or `=`) decides.
+    [$._primary_expression, $._lambda_positional_destructuring_entry],
+    [$._primary_expression, $._lambda_name_based_destructuring_entry],
+    [$._full_positional_destructuring_entry, $._lambda_positional_destructuring_entry],
+    [$._full_name_based_destructuring_entry, $._lambda_name_based_destructuring_entry],
+
+    // @Type(... — in Kotlin, ( after annotation name is always constructor args.
+    // Resolved via prec(1) on _annotation_constructor_invocation so the parser
+    // always shifts (consuming '(' as value_arguments) rather than reducing
+    // (completing user_type). Scoped to annotations only.
+
+    // "expect" as a plaform modifier conflicts with expect as an identifier
+    [$.platform_modifier, $.simple_identifier],
+    // "data", "inner" as class modifier or id
+    [$.class_modifier, $.simple_identifier],
+    // "override" as member modifier conflicts with override as an identifier
+    [$.member_modifier, $.simple_identifier],
+    // visibility modifiers as identifiers
+    [$.visibility_modifier, $.simple_identifier],
+    // inheritance modifiers as identifiers
+    [$.inheritance_modifier, $.simple_identifier],
+    // property modifier as identifier
+    [$.property_modifier, $.simple_identifier],
+    // parameter modifiers as identifiers
+    [$.parameter_modifier, $.simple_identifier],
+    [$.parameter_modifiers],
+    [$.type_parameter_modifiers],
+    [$._class_parameter_without_platform_modifier, $._class_parameter_platform_modifiers],
+
+    // "<x>.<y> = z assignment conflicts with <x>.<y>() function call"
+    [$._postfix_unary_expression, $._expression],
+
+    // ambiguity between generics and comparison operations (foo < b > c)
+    // _generic_call_expression is the prec.dynamic(1) variant with required type_arguments
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.range_expression, $.comparison_expression],
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.elvis_expression, $.comparison_expression],
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.check_expression, $.comparison_expression],
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.additive_expression, $.comparison_expression],
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.infix_expression, $.comparison_expression],
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.multiplicative_expression, $.comparison_expression],
+    [$.type_arguments, $._comparison_operator],
+
+    // ambiguity between prefix expressions and annotations before functions
+    [$._statement, $.prefix_expression],
+    // _statement_annotation vs annotation (in prefix_expression and modifiers):
+    // both parse @Identifier but route through different rules.
+    [$._statement_annotation, $.annotation],
+    [$.prefix_expression, $.when_subject],
+    [$.prefix_expression, $.value_argument],
+    // ambiguity between prefix unary operators and other expression types
+    [$.call_expression, $._generic_call_expression, $.navigation_expression, $.prefix_expression, $.comparison_expression],
+
+    // ambiguity between multiple user types and class property/function declarations
+    [$.user_type],
+    [$.user_type, $.anonymous_function],
+    //[$.user_type, $.function_type],
+
+    // ambiguity caused by 'suspend'
+    [$.function_modifier, $.simple_identifier],
+    [$._type_modifier, $.simple_identifier],
+    [$.delegation_specifier, $._type_modifier, $.simple_identifier],
+    [$.anonymous_function, $.function_modifier],
+    [$.anonymous_function, $.simple_identifier],
+    [$.anonymous_function, $.function_modifier, $.simple_identifier],
+
+
+    // ambiguity between simple identifier 'set/get' with actual setter/getter functions.
+    [$.setter, $.simple_identifier],
+    [$.getter, $.simple_identifier],
+
+    // `context(...)` can start a context parameter list (KEEP-0367) or an
+    // ordinary call/navigation on an identifier named `context`.
+    [$.context_parameters, $.simple_identifier],
+
+    // Inside `context(...)`: a leading annotation can belong to a named
+    // parameter's prefix or to the type modifiers of an unnamed (legacy
+    // context-receiver) entry.
+    [$.context_parameter, $._type_modifier],
+
+    // ambiguity between parameter modifiers in anonymous functions
+    [$.parameter_modifiers, $._type_modifier],
+
+    // ambiguity for object literal
+    [$.object_literal],
+    [$.object_literal, $.class_modifier],
+    [$.object_literal, $.class_modifier, $.simple_identifier],
+    [$.object_literal, $.simple_identifier],
+    [$.object_literal, $.object_declaration],
+
+    // ambiguity between use of suspend in type and delegation specifiers
+    [$.delegation_specifier, $._type_modifier],
+
+    // ambiguity between type modifiers before an @
+    [$.type_modifiers],
+    // ambiguity between associating type modifiers
+    [$.not_nullable_type],
+
+    [$.receiver_type],
+    [$.receiver_type, $._type],
+
+    // parenthesized function type?
+    [$.delegation_specifier, $._type],
+
+    // Ambiguity between regular expressions and the no-trailing-lambda variant
+    // used in explicit_delegation to prevent `{ }` after `by expr` being parsed
+    // as a trailing lambda instead of class_body.
+    [$._expression, $._expression_no_trailing_lambda],
+    [$._primary_expression, $._primary_expression_no_trailing_lambda],
+    // Three-way conflict: callable_reference (Foo::bar) starts with simple_identifier
+    // which both primary_expression variants can match.
+    [$._primary_expression, $._primary_expression_no_trailing_lambda, $.callable_reference],
+
+    // ambiguity between call_suffix and _generic_call_suffix (both can match type_arguments + args)
+    [$.call_suffix, $._generic_call_suffix],
+    [$._call_suffix_no_trailing_lambda, $._generic_call_suffix_no_trailing_lambda],
+  ],
+
+  externals: $ => [
+    $._automatic_semicolon,
+    $.multiline_comment,
+    $._string_start,
+    $._string_end,
+    $.string_content,
+    $._primary_constructor_keyword,
+    $._import_dot,
+    $._interpolation_expression_start,
+    $._interpolation_identifier_start,
+    $._by_delegation_hint,
+    $._backing_field_hint,
+    $._annotation_args_paren,
+    $._constructor_paren_hint,
+    $._same_line_boundary,
+    $._modifier_run_hint,
+  ],
+
+  extras: $ => [
+    $.line_comment,
+    $.multiline_comment,
+    /\s+/ // Whitespace
+  ],
+
+  word: $ => $._alpha_identifier,
+
+  rules: {
+    // ====================
+    // Syntax grammar
+    // ====================
+
+    // ==========
+    // General
+    // ==========
+
+    // start
+    source_file: $ => seq(
+      optional($.shebang_line),
+      repeat($.file_annotation),
+      optional($.package_header),
+      optional($.import_list),
+      repeat(choice(seq($._statement, $._semi), ";"))
+    ),
+
+    shebang_line: $ => seq("#!", /[^\r\n]*/),
+
+    // Several file annotations can share a line (`@file:JvmMultifileClass @file:JvmName("FlowKt")`), so the separator
+    // is optional.
+    file_annotation: $ => seq(
+      "@", "file", ":",
+      choice(
+        seq("[", repeat1($._unescaped_annotation), "]"),
+        $._unescaped_annotation
+      ),
+      optional($._semi)
+    ),
+
+    package_header: $ => seq("package", $.identifier, $._semi),
+
+    import_list: $ => repeat1($.import_header),
+
+    import_header: $ => seq(
+      "import",
+      alias($._import_identifier, $.identifier),
+      optional(choice(seq($._import_dot, $.wildcard_import), $.import_alias)),
+      $._semi
+    ),
+
+    wildcard_import: _ => token.immediate("*"),
+
+    import_alias: $ => seq("as", alias($.simple_identifier, $.type_identifier)),
+
+    top_level_object: $ => seq($._declaration, optional($._semi)),
+
+    type_alias: $ => seq(
+      optional($.modifiers),
+      "typealias",
+      alias($.simple_identifier, $.type_identifier),
+      optional($.type_parameters),
+      "=",
+      $._type
+    ),
+
+    _declaration: $ => choice(
+      $.class_declaration,
+      $.object_declaration,
+      $.function_declaration,
+      $.property_declaration,
+      $.destructuring_declaration,
+      // TODO: it would be better to have getter/setter only in
+      // property_declaration but it's difficult to get ASI
+      // (Automatic Semicolon Insertion) working in the lexer for
+      // getter/setter. Indeed, they can also have modifiers in
+      // front, which means it's not enough to lookahead for 'get' or 'set' in
+      // the lexer, you also need to handle modifier keywords. It is thus
+      // simpler to accept them here.
+      $.getter,
+      $.setter,
+      $.type_alias
+    ),
+
+    // ==========
+    // Classes
+    // ==========
+
+    class_declaration: $ => prec.dynamic(1, prec.right(choice(
+      seq(
+        optional($.modifiers),
+        choice("class", seq(optional("fun"), "interface")),
+        alias($.simple_identifier, $.type_identifier),
+        optional($.type_parameters),
+        optional($.primary_constructor),
+        optional(seq(":", $._delegation_specifiers)),
+        optional($.type_constraints),
+        optional($.class_body)
+      ),
+      seq(
+        optional($.modifiers),
+        // The hint marks 'enum' as a pending declaration prefix so the ASI
+        // scanner does not split 'enum class' with a _same_line_boundary;
+        // see the modifiers rule.
+        "enum", optional($._modifier_run_hint), "class",
+        alias($.simple_identifier, $.type_identifier),
+        optional($.type_parameters),
+        optional($.primary_constructor),
+        optional(seq(":", $._delegation_specifiers)),
+        optional($.type_constraints),
+        optional($.enum_class_body)
+      )
+    ))),
+
+    primary_constructor: $ => seq(
+      optional(seq(optional($.modifiers), $._primary_constructor_keyword)),
+      // Never emitted; its presence in valid_symbols tells the ASI scanner
+      // that a '(' can continue this class declaration's primary constructor
+      // on the next line (BrokkAi/bifrost-dev#2762).
+      optional($._constructor_paren_hint),
+      $._class_parameters
+    ),
+
+    class_body: $ => seq("{", repeat(";"), optional($._class_member_declarations), "}"),
+
+    _class_parameters: $ => seq(
+      "(",
+      optional(sep1($.class_parameter, ",")),
+      optional(","),
+      ")"
+    ),
+
+    binding_pattern_kind: $ => choice("val", "var"),
+
+    class_parameter: $ => seq(
+      choice(
+        $._class_parameter_without_platform_modifier,
+        $._class_parameter_with_platform_modifier
+      )
+    ),
+
+    // Primary-constructor parameters take a narrower modifier set than the
+    // general `modifiers` rule: annotations, visibility, inheritance and
+    // member modifiers (real-world usage such as `final override val x`),
+    // and `vararg`/`noinline`/`crossinline` — but never class modifiers. A
+    // platform modifier is handled separately below because it is only valid
+    // on a constructor property (`actual val x`), and otherwise conflicts with
+    // soft-keyword parameter names such as `actual`.
+    // The general rule let a parameter named `data`/`inner`/`value` be read
+    // as a class_modifier after `vararg`, swallowing the parameter name and
+    // collapsing the whole declaration (BrokkAi/bifrost-dev#2735). Aliased
+    // to `modifiers` at the use site to keep the CST shape stable.
+    _class_parameter_modifiers: $ => repeat1(choice(
+      $.annotation,
+      $.visibility_modifier,
+      $.inheritance_modifier,
+      $.member_modifier,
+      $.parameter_modifier
+    )),
+
+    _class_parameter_without_platform_modifier: $ => seq(
+      optional(alias($._class_parameter_modifiers, $.modifiers)),
+      optional($.binding_pattern_kind),
+      $.simple_identifier,
+      ":",
+      $._type,
+      optional(seq("=", $._expression))
+    ),
+
+    _class_parameter_with_platform_modifier: $ => seq(
+      alias($._class_parameter_platform_modifiers, $.modifiers),
+      $.binding_pattern_kind,
+      $.simple_identifier,
+      ":",
+      $._type,
+      optional(seq("=", $._expression))
+    ),
+
+    _class_parameter_platform_modifiers: $ => seq(
+      repeat(choice(
+        $.annotation,
+        $.visibility_modifier,
+        $.inheritance_modifier,
+        $.member_modifier,
+        $.parameter_modifier
+      )),
+      $.platform_modifier,
+      repeat(choice(
+        $.annotation,
+        $.visibility_modifier,
+        $.inheritance_modifier,
+        $.member_modifier,
+        $.parameter_modifier,
+        $.platform_modifier
+      ))
+    ),
+
+    _delegation_specifiers: $ => prec.left(sep1($.delegation_specifier, ",")),
+
+    // Annotations may precede each supertype (`: Base, @Suppress("DEPRECATION") Legacy`).
+    delegation_specifier: $ => prec.right(seq(
+      repeat($.annotation),
+      choice(
+        $.constructor_invocation,
+        $.explicit_delegation,
+        $.user_type,
+        $.function_type,
+        // The grammar doesn't explicitly define it, but parenthesized function
+        // types seem to work!
+        seq('(', $.function_type, ')'),
+        seq("suspend", $.function_type)
+      )
+    )),
+
+    constructor_invocation: $ => seq($.user_type, $.value_arguments),
+
+    // Annotation-scoped variant with prec(1) to resolve the shift/reduce
+    // conflict at `user_type • (` — always shift (consume `(` as constructor
+    // args). Scoped here rather than on the shared constructor_invocation to
+    // avoid changing delegation_specifier behavior. The argument list's open
+    // paren is a distinct external token (BrokkAi/bifrost-dev#2758): the
+    // scanner emits it only when the paren group is NOT a function type, so
+    // `@Composable () -> Unit` binds the parens to the function type instead
+    // of to the annotation.
+    _annotation_constructor_invocation: $ => prec(1, seq(
+      $.user_type,
+      alias($._annotation_value_arguments, $.value_arguments)
+    )),
+
+    // Structurally identical to value_arguments, but opens with the external
+    // _annotation_args_paren so the scanner can refuse the annotation-args
+    // reading in front of a function type. Aliased to value_arguments at the
+    // use site to keep the CST shape stable.
+    _annotation_value_arguments: $ => seq(
+      $._annotation_args_paren,
+      optional(
+        seq(
+          sep1($.value_argument, ","),
+          optional(","),
+        )
+      ),
+      ")"
+    ),
+
+    _annotated_delegation_specifier: $ => seq(repeat($.annotation), $.delegation_specifier),
+
+    explicit_delegation: $ => seq(
+      choice(
+        $.user_type,
+        $.function_type
+      ),
+      optional($._by_delegation_hint),
+      "by",
+      // Use a restricted expression that doesn't allow trailing lambda calls
+      // to avoid ambiguity with class_body in object literals.
+      // e.g., `object : Interface by delegate { }` - the `{` should be class_body, not a lambda.
+      // If a trailing lambda delegate is truly needed, use parentheses:
+      // `object : Interface by (factory { config }) { ... }`
+      $._expression_no_trailing_lambda
+    ),
+
+    // Expression variant that doesn't allow call expressions with trailing lambdas.
+    // This is used in explicit_delegation to prevent ambiguity with class_body.
+    _expression_no_trailing_lambda: $ => choice(
+      $._unary_expression,
+      $._binary_expression,
+      $._primary_expression_no_trailing_lambda
+    ),
+
+    _primary_expression_no_trailing_lambda: $ => choice(
+      $.parenthesized_expression,
+      $.simple_identifier,
+      $._literal_constant,
+      $.string_literal,
+      $.callable_reference,
+      alias($.call_expression_no_trailing_lambda, $.call_expression),
+      alias($._generic_call_expression_no_trailing_lambda, $.call_expression),
+      $._function_literal,
+      $.object_literal,
+      $.collection_literal,
+      $.this_expression,
+      $.super_expression,
+      $.if_expression,
+      $.when_expression,
+      $.try_expression,
+      $.jump_expression
+    ),
+
+    // Call expression that only allows value_arguments, not trailing lambdas
+    call_expression_no_trailing_lambda: $ => prec.left(PREC.POSTFIX, seq(
+      $._expression_no_trailing_lambda,
+      alias($._call_suffix_no_trailing_lambda, $.call_suffix)
+    )),
+
+    // Generic call (required type_arguments) without trailing lambda
+    _generic_call_expression_no_trailing_lambda: $ => prec.left(PREC.POSTFIX, prec.dynamic(1, seq(
+      $._expression_no_trailing_lambda,
+      alias($._generic_call_suffix_no_trailing_lambda, $.call_suffix)
+    ))),
+
+    _call_suffix_no_trailing_lambda: $ => seq(
+      optional($.type_arguments),
+      $.value_arguments
+    ),
+
+    _generic_call_suffix_no_trailing_lambda: $ => seq(
+      $.type_arguments,
+      $.value_arguments
+    ),
+
+    type_parameters: $ => seq("<", sep1($.type_parameter, ","), optional(","), ">"),
+
+    type_parameter: $ => seq(
+      optional($.type_parameter_modifiers),
+      alias($.simple_identifier, $.type_identifier),
+      optional(seq(":", $._type))
+    ),
+
+    type_constraints: $ => prec.right(seq("where", sep1($.type_constraint, ","))),
+
+    type_constraint: $ => seq(
+      repeat($.annotation),
+      alias($.simple_identifier, $.type_identifier),
+      ":",
+      $._type
+    ),
+
+    // ==========
+    // Class members
+    // ==========
+
+    // The trailing _semi is optional so that a member can sit directly
+    // before the closing brace on the same line, e.g.
+    // `object Registry { fun register() {} }`. The external scanner only
+    // emits _automatic_semicolon at a newline or before ';'/EOF, so with a
+    // mandatory trailing _semi a single-line class body could never
+    // complete and the GLR fell back to a bogus infix-expression reading
+    // (BrokkAi/tree-sitter-kotlin#14). Same shape as `statements`.
+    _class_member_declarations: $ => seq(
+      $._class_member_declaration,
+      repeat(seq($._semis, $._class_member_declaration)),
+      optional($._semis),
+    ),
+
+    _class_member_declaration: $ => choice(
+      $._declaration,
+      $.companion_object,
+      $.anonymous_initializer,
+      $.secondary_constructor
+    ),
+
+    anonymous_initializer: $ => seq("init", $._block),
+
+    companion_object: $ => seq(
+      optional($.modifiers),
+      "companion",
+      "object",
+      optional(alias($.simple_identifier, $.type_identifier)),
+      optional(seq(":", $._delegation_specifiers)),
+      optional($.class_body)
+    ),
+
+    function_value_parameters: $ => seq(
+      "(",
+      optional(sep1($._function_value_parameter, ",")),
+      optional(","),
+      ")"
+    ),
+
+    _function_value_parameter: $ => seq(
+      optional($.parameter_modifiers),
+      $.parameter,
+      optional(seq("=", $._expression))
+    ),
+
+    receiver_type: $ => seq(
+      optional($.type_modifiers),
+      choice (
+        $.parenthesized_type,
+        $.nullable_type,
+        $._type_reference,
+      )
+    ),
+
+    function_declaration: $ => prec.right(seq( // TODO
+      optional($.modifiers),
+      "fun",
+      optional($.type_parameters),
+      optional(seq(field("receiver", $.receiver_type), optional('.'))),
+      $.simple_identifier,
+      $.function_value_parameters,
+      optional(seq(":", $._type)),
+      optional($.type_constraints),
+      optional($.function_body)
+    )),
+
+    function_body: $ => choice($._block, seq("=", $._expression)),
+
+    variable_declaration: $ => prec.left(PREC.VAR_DECL, seq(
+      // repeat($.annotation), TODO
+      $.simple_identifier,
+      optional(seq(":", $._type))
+    )),
+
+    // Entry in name-based (parenthesized) destructuring — supports optional val/var and renaming
+    _name_based_destructuring_entry: $ => prec.left(PREC.VAR_DECL, seq(
+      optional($.binding_pattern_kind),
+      $.simple_identifier,
+      optional(seq(":", $._type)),
+      optional(seq("=", $.simple_identifier))  // renaming: val localName = propertyName
+    )),
+
+    // Entry in positional (bracketed) destructuring — supports optional val/var, NO renaming
+    _positional_destructuring_entry: $ => prec.left(PREC.VAR_DECL, seq(
+      optional($.binding_pattern_kind),
+      $.simple_identifier,
+      optional(seq(":", $._type))
+    )),
+
+    property_declaration: $ => prec.right(seq(
+      optional($.modifiers),
+      $.binding_pattern_kind,
+      optional($.type_parameters),
+      optional(seq(field("receiver", $.receiver_type), optional('.'))),
+      choice($.variable_declaration, $.multi_variable_declaration),
+      optional($.type_constraints),
+      // Kotlin 2.2 explicit backing field (KEEP-0430) as an alternative to
+      // an initializer/delegate: the compiler forbids combining them, and
+      // scoping the backing field to the initializer-free form keeps the
+      // hint token's blast radius (and the parse tables) small.
+      optional(choice(
+        seq("=", $._expression),
+        $.property_delegate,
+        $.backing_field
+      )),
+      optional(';'),
+      optional($._property_accessors)
+    )),
+
+    // Keeping the accessor permutations behind one rule prevents the property
+    // prefix from being duplicated across both alternatives in the LR tables.
+    _property_accessors: $ => prec.right(choice(
+      seq($.getter, optional($.setter)),
+      seq($.setter, optional($.getter)),
+    )),
+
+    property_delegate: $ => seq(optional($._by_delegation_hint), "by", $._expression),
+
+    // Explicit backing field: `field = expr`, `field: Type`, or
+    // `field: Type = expr`. Modifiers are parsed by the compiler before the
+    // `field` component (KEEP-0430), e.g. `private field = 4`.
+    // `field` stays a soft keyword (it remains a simple_identifier); the
+    // optional hint token mirrors property_delegate: it is never emitted,
+    // but its presence in valid_symbols tells the external scanner not to
+    // insert an automatic semicolon before a `field =` / `field: T =` line.
+    backing_field: $ => prec.right(seq(
+      optional($._backing_field_hint),
+      optional($.modifiers),
+      "field",
+      choice(
+        seq(":", $._type, optional(seq("=", $._expression))),
+        seq("=", $._expression)
+      )
+    )),
+
+    destructuring_declaration: $ => prec.right(seq(
+      optional($.modifiers),
+      alias($._full_multi_variable_declaration, $.multi_variable_declaration),
+      optional($.type_constraints),
+      "=",
+      $._expression,
+      optional(';'),
+    )),
+
+    // The prec.dynamic pins the accessor reading of a bare modifier + 'get'
+    // / 'set' line ('private set' after a property) against the equally
+    // error-free infix-expression reading; PSI always reads the accessor.
+    getter: $ => prec.dynamic(1, prec.right(seq(
+      optional($.modifiers),
+      "get",
+      optional(seq(
+        "(", ")",
+        optional(seq(":", $._type)),
+        $.function_body
+      ))
+    ))),
+
+    setter: $ => prec.dynamic(1, prec.right(seq(
+      optional($.modifiers),
+      "set",
+      optional(seq(
+        "(",
+        $.parameter_with_optional_type,
+        optional(","),
+        ")",
+        optional(seq(":", $._type)),
+        $.function_body
+      ))
+    ))),
+
+    parameters_with_optional_type: $ => seq("(", sep1($.parameter_with_optional_type, ","), ")"),
+
+    parameter_with_optional_type: $ => seq(
+      optional($.parameter_modifiers),
+      $.simple_identifier,
+      optional(seq(":", $._type))
+    ),
+
+    parameter: $ => seq($.simple_identifier, ":", $._type),
+
+    object_declaration: $ => prec.dynamic(1, prec.right(seq(
+      optional($.modifiers),
+      "object",
+      alias($.simple_identifier, $.type_identifier),
+      optional(seq(":", $._delegation_specifiers)),
+      optional($.class_body)
+    ))),
+
+    secondary_constructor: $ => seq(
+      optional($.modifiers),
+      "constructor",
+      $.function_value_parameters,
+      optional(seq(":", $.constructor_delegation_call)),
+      optional($._block)
+    ),
+
+    constructor_delegation_call: $ => seq(choice("this", "super"), $.value_arguments),
+
+    // ==========
+    // Enum classes
+    // ==========
+
+    enum_class_body: $ => seq(
+      "{",
+      optional($._enum_entries),
+      optional(seq(";", repeat(";"), optional($._class_member_declarations))),
+      "}"
+    ),
+
+    _enum_entries: $ => seq(sep1($.enum_entry, ","), optional(",")),
+
+    enum_entry: $ => seq(
+      optional($.modifiers),
+      $.simple_identifier,
+      optional($.value_arguments),
+      optional($.class_body)
+    ),
+
+    // ==========
+    // Types
+    // ==========
+
+    _type: $ => seq(
+      optional($.type_modifiers),
+      choice(
+        $.function_type,
+        $.parenthesized_type,
+        $.nullable_type,
+        $._type_reference,
+        $.not_nullable_type
+      )
+    ),
+
+    _type_reference: $ => prec.left(1, choice(
+      $.user_type,
+      "dynamic"
+    )),
+
+    not_nullable_type: $ => seq(
+      optional($.type_modifiers),
+      choice($.user_type, $.parenthesized_user_type),
+      '&',
+      optional($.type_modifiers),
+      choice($.user_type, $.parenthesized_user_type),
+    ),
+
+    nullable_type: $ => seq(
+      choice($._type_reference, $.parenthesized_type),
+      repeat1($.quest)
+    ),
+
+    quest: $ => "?",
+
+    // TODO: Figure out a better solution than right associativity
+    //       to prevent nested types from being recognized as
+    //       unary expresions with navigation suffixes.
+
+    user_type: $ => sep1($._simple_user_type, "."),
+
+    _simple_user_type: $ => prec.right(PREC.SIMPLE_USER_TYPE, seq(
+      alias($.simple_identifier, $.type_identifier),
+      optional($.type_arguments)
+    )),
+
+    type_projection: $ => choice(
+      seq(optional($.type_projection_modifiers), $._type),
+      "*"
+    ),
+
+    type_projection_modifiers: $ => repeat1($._type_projection_modifier),
+
+    _type_projection_modifier: $ => $.variance_modifier,
+
+    // Context parameters on a function type (`context(Scope) () -> Unit`) come
+    // after any type modifiers, as the compiler parses them.
+    function_type: $ => seq(
+      optional($.context_parameters),
+      optional(seq(field("receiver", $.receiver_type), ".")),
+      $.function_type_parameters,
+      "->",
+      $._type
+    ),
+
+    // A higher-than-default precedence resolves the ambiguity with 'parenthesized_type'
+    function_type_parameters: $ => prec.left(1, seq(
+      "(",
+      optional(seq(sep1(choice($.parameter, $._type), ","), optional(","))),
+      ")"
+    )),
+
+    parenthesized_type: $ => seq("(", $._type, ")"),
+
+    parenthesized_user_type: $ => seq(
+      "(",
+      choice($.user_type, $.parenthesized_user_type),
+      ")"
+    ),
+
+    // ==========
+    // Statements
+    // ==========
+
+    statements: $ => seq(
+      $._statement,
+      repeat(seq($._semis, $._statement)),
+      optional($._semis),
+    ),
+
+    _statement: $ => choice(
+      $._declaration,
+      seq(
+        repeat(choice($.label, alias($._statement_annotation, $.annotation))),
+        choice(
+          $.assignment,
+          $._loop_statement,
+          $._expression
+        )
+      )
+    ),
+
+    // Structurally identical to annotation, but a distinct rule so that
+    // the parser state machine does not merge it with the annotation
+    // reduction inside modifiers. Without this separation, modifiers
+    // (PREC.MODIFIERS) always wins the reduce/reduce conflict and the
+    // annotation-expression path is never explored, causing
+    // @Annotation("args") (expr) to produce ERROR nodes.
+    // Hidden (_) to keep it internal; aliased to $.annotation in _statement
+    // so the CST uses a single "annotation" node name in all contexts,
+    // matching PSI's unified ANNOTATION_ENTRY.
+    _statement_annotation: $ => choice(
+      $._single_annotation,
+      $._multi_annotation
+    ),
+
+    label: $ => token(seq(
+      /[a-zA-Z_][a-zA-Z_0-9]*/,
+      "@"
+    )),
+
+    control_structure_body: $ => choice($._block, $._statement),
+
+    _block: $ => prec(PREC.BLOCK, seq("{", repeat(";"), optional($.statements), "}")),
+
+    _loop_statement: $ => choice(
+      $.for_statement,
+      $.while_statement,
+      $.do_while_statement
+    ),
+
+    for_statement: $ => prec.right(seq(
+      "for",
+      "(",
+      repeat($.annotation),
+      choice($.variable_declaration, $.multi_variable_declaration),
+      "in",
+      $._expression,
+      ")",
+      optional($.control_structure_body)
+    )),
+
+    while_statement: $ => seq(
+      "while",
+      "(",
+      $._expression,
+      ")",
+      choice(";", $.control_structure_body)
+    ),
+
+    do_while_statement: $ => prec.right(seq(
+      "do",
+      optional($.control_structure_body),
+      "while",
+      "(",
+      $._expression,
+      ")",
+    )),
+
+    // See also https://github.com/tree-sitter/tree-sitter/issues/160
+    // generic EOF/newline token.
+    //
+    // _same_line_boundary covers separators Kotlin does not spell at all:
+    // no ';' and no newline is required between declarations on one line
+    // when the previous one ends with a block ('object R { fun f() {} val
+    // x = 1 }', BrokkAi/tree-sitter-kotlin#15). The scanner emits it
+    // zero-width, same-line only, and only before a hard declaration
+    // keyword, which can start a declaration but can never continue the
+    // construct before it. It lives inside _semi rather than only in
+    // _class_member_declarations so every _semi context keeps an identical
+    // follow set; giving class bodies their own separator duplicated
+    // thousands of shared states and pushed parser.c past the 60 MiB CI
+    // limit.
+    _semi: $ => choice($._automatic_semicolon, $._same_line_boundary),
+
+    // The Kotlin compiler skips any number of semicolons before and between statements and class members
+    // (`class A {; fun f() {};; val x = 1 }`). The scanner turns the first `;` after a statement into an automatic
+    // semicolon; the rest are plain tokens. The bodies and source_file accept leading or only semicolons
+    // (`fun f() { ; }`).
+    _semis: $ => seq($._semi, repeat(";")),
+
+    assignment: $ => choice(
+      prec.left(PREC.ASSIGNMENT, seq($.directly_assignable_expression, $._assignment_and_operator, $._expression)),
+      prec.left(PREC.ASSIGNMENT, seq($.directly_assignable_expression, "=", $._expression)),
+      // TODO
+    ),
+
+    // ==========
+    // Expressions
+    // ==========
+
+    _expression: $ => choice(
+      $._unary_expression,
+      $._binary_expression,
+      $._primary_expression
+    ),
+
+    // Unary expressions
+
+    _unary_expression: $ => choice(
+      $.postfix_expression,
+      $.indexing_expression,
+      $.navigation_expression,
+      $.prefix_expression,
+      $.as_expression,
+      $.spread_expression
+    ),
+
+    postfix_expression: $ => prec.left(PREC.POSTFIX, seq($._expression, $._postfix_unary_operator)),
+
+    call_expression: $ => prec.left(PREC.POSTFIX, seq($._expression, $.call_suffix)),
+
+    // Generic call expression: call with REQUIRED type_arguments.
+    // prec.dynamic(1) tells GLR to prefer the generic-call interpretation
+    // (f<T>(x)) over the comparison interpretation (f < T > (x)).
+    // Separated from call_expression so the dynamic boost only applies
+    // when type_arguments are actually parsed, not for all calls.
+    _generic_call_expression: $ => prec.left(PREC.POSTFIX, prec.dynamic(1, seq(
+      $._expression,
+      alias($._generic_call_suffix, $.call_suffix)
+    ))),
+
+    indexing_expression: $ => prec.left(PREC.POSTFIX, seq($._expression, $.indexing_suffix)),
+
+    navigation_expression: $ => prec.left(PREC.POSTFIX, seq($._expression, $.navigation_suffix)),
+
+    prefix_expression: $ => choice(
+      prec.right(PREC.PREFIX, seq($._prefix_unary_operator, $._expression)),
+      prec.right(seq(choice($.annotation, $.label), $._expression)),
+    ),
+
+    as_expression: $ => prec.left(PREC.AS, seq($._expression, $._as_operator, $._type)),
+
+    spread_expression: $ => prec.left(PREC.SPREAD, seq("*", $._expression)),
+
+    // Binary expressions
+
+    _binary_expression: $ => choice(
+      $.multiplicative_expression,
+      $.additive_expression,
+      $.range_expression,
+      $.infix_expression,
+      $.elvis_expression,
+      $.check_expression,
+      $.comparison_expression,
+      $.equality_expression,
+      $.conjunction_expression,
+      $.disjunction_expression
+    ),
+
+    multiplicative_expression: $ => prec.left(PREC.MULTIPLICATIVE, seq($._expression, $._multiplicative_operator, $._expression)),
+
+    additive_expression: $ => prec.left(PREC.ADDITIVE, seq($._expression, $._additive_operator, $._expression)),
+
+    range_expression: $ => prec.left(PREC.RANGE, seq($._expression, choice("..", "..<"), $._expression)),
+
+    infix_expression: $ => prec.left(PREC.INFIX, seq($._expression, $.simple_identifier, $._expression)),
+
+    elvis_expression: $ => prec.left(PREC.ELVIS, seq($._expression, "?:", $._expression)),
+
+    check_expression: $ => prec.left(PREC.CHECK, seq($._expression, choice(
+      seq(optional("!"), $._in_operator, $._expression),
+      seq(optional("!"), $._is_operator, $._type)))),
+
+    comparison_expression: $ => prec.left(PREC.COMPARISON, seq($._expression, $._comparison_operator, $._expression)),
+
+    equality_expression: $ => prec.left(PREC.EQUALITY, seq($._expression, $._equality_operator, $._expression)),
+
+    conjunction_expression: $ => prec.left(PREC.CONJUNCTION, seq($._expression, "&&", $._expression)),
+
+    disjunction_expression: $ => prec.left(PREC.DISJUNCTION, seq($._expression, "||", $._expression)),
+
+    // Suffixes
+
+    indexing_suffix: $ => seq("[", sep1($._expression, ","), optional(','), "]"),
+
+    navigation_suffix: $ => seq(
+      // this introduces ambiguities with 'less than' for comparisons
+      optional($.type_arguments),
+      $._member_access_operator,
+      choice(
+        $.simple_identifier,
+        $.parenthesized_expression,
+        "class"
+      )
+    ),
+
+    call_suffix: $ => prec.left(seq(
+      // this introduces ambiguities with 'less than' for comparisons
+      optional($.type_arguments),
+      choice(
+        prec(PREC.ARGUMENTS, seq(optional($.value_arguments), $.annotated_lambda)),
+        $.value_arguments
+      )
+    )),
+
+    // Call suffix with REQUIRED type_arguments (used by _generic_call_expression)
+    _generic_call_suffix: $ => prec.left(seq(
+      $.type_arguments,
+      choice(
+        prec(PREC.ARGUMENTS, seq(optional($.value_arguments), $.annotated_lambda)),
+        $.value_arguments
+      )
+    )),
+
+    annotated_lambda: $ => seq(
+      repeat($.annotation),
+      optional($.label),
+      $.lambda_literal
+    ),
+
+    type_arguments: $ => seq("<", sep1($.type_projection, ","), optional(","), ">"),
+
+    value_arguments: $ => seq(
+      "(",
+      optional(
+        seq(
+          sep1($.value_argument, ","),
+          optional(","),
+        )
+      ),
+      ")"
+    ),
+
+    value_argument: $ => seq(
+      optional($.annotation),
+      optional(seq($.simple_identifier, "=")),
+      optional("*"),
+      $._expression
+    ),
+
+    _primary_expression: $ => choice(
+      $.parenthesized_expression,
+      $.simple_identifier,
+      $._literal_constant,
+      $.string_literal,
+      $.callable_reference,
+      $.call_expression,
+      alias($._generic_call_expression, $.call_expression),
+      $._function_literal,
+      $.object_literal,
+      $.collection_literal,
+      $.this_expression,
+      $.super_expression,
+      $.if_expression,
+      $.when_expression,
+      $.try_expression,
+      $.jump_expression
+    ),
+
+    parenthesized_expression: $ => seq("(", $._expression, ")"),
+
+    // https://kotlinlang.org/spec/syntax-and-grammar.html#grammar-rule-collectionLiteral (it can be empty: `[]`)
+    collection_literal: $ => seq(
+      "[",
+      optional(seq(sep1($._expression, ","), optional(","))),
+      "]"),
+
+    _literal_constant: $ => choice(
+      $.boolean_literal,
+      $.integer_literal,
+      $.hex_literal,
+      $.bin_literal,
+      $.character_literal,
+      $.real_literal,
+      $.null_literal,
+      $.long_literal,
+      $.unsigned_literal
+    ),
+
+    string_literal: $ => seq(
+      $._string_start,
+      repeat(choice($.string_content, $._interpolation)),
+      $._string_end,
+    ),
+
+    line_string_expression: $ => seq("${", $._expression, "}"),
+
+    _interpolation: $ => choice(
+      seq(alias($._interpolation_expression_start, $.interpolation_expression_start), alias($._expression, $.interpolated_expression), alias("}", $.interpolation_expression_end)),
+      seq(alias($._interpolation_identifier_start, $.interpolation_identifier_start), alias($.simple_identifier, $.interpolated_identifier)),
+    ),
+
+    lambda_literal: $ => prec(PREC.LAMBDA_LITERAL, seq(
+      "{",
+      optional(seq(optional($.lambda_parameters), "->")),
+      repeat(";"),
+      optional($.statements),
+      "}"
+    )),
+
+    // The full form of destructuring (`(val a, var b) = pair`, `[val a, val b] = list`) needs `val` or `var` on every
+    // entry, as the compiler requires. That keeps a statement that starts with a parenthesized name, such as `(x)` or
+    // `(f)(1)`, an expression.
+    _full_multi_variable_declaration: $ => choice(
+      seq(
+        '(',
+        sep1(alias($._full_name_based_destructuring_entry, $.variable_declaration), ','),
+        optional(','),
+        ')'
+      ),
+      seq(
+        '[',
+        sep1(alias($._full_positional_destructuring_entry, $.variable_declaration), ','),
+        optional(','),
+        ']'
+      ),
+    ),
+
+    _full_name_based_destructuring_entry: $ => prec.left(PREC.VAR_DECL, seq(
+      $.binding_pattern_kind,
+      $.simple_identifier,
+      optional(seq(":", $._type)),
+      optional(seq("=", $.simple_identifier))
+    )),
+
+    _full_positional_destructuring_entry: $ => prec.left(PREC.VAR_DECL, seq(
+      $.binding_pattern_kind,
+      $.simple_identifier,
+      optional(seq(":", $._type))
+    )),
+
+    multi_variable_declaration: $ => choice(
+      seq(
+        '(',
+        sep1(alias($._name_based_destructuring_entry, $.variable_declaration), ','),
+        optional(','),
+        ')'
+      ),
+      seq(
+        '[',
+        sep1(alias($._positional_destructuring_entry, $.variable_declaration), ','),
+        optional(','),
+        ']'
+      ),
+    ),
+
+    lambda_parameters: $ => seq(sep1($._lambda_parameter, ","), optional(",")),
+
+    _lambda_parameter: $ => choice(
+      $.variable_declaration,
+      seq(alias($._lambda_multi_variable_declaration, $.multi_variable_declaration), optional(seq(":", $._type)))
+    ),
+
+    // Destructured lambda parameters, without the static precedence of the other destructuring entries: a lambda body
+    // can also start with a parenthesized expression (`{ (f)(x) }`), and only a following `->` tells the two apart.
+    _lambda_multi_variable_declaration: $ => choice(
+      seq(
+        '(',
+        sep1(alias($._lambda_name_based_destructuring_entry, $.variable_declaration), ','),
+        optional(','),
+        ')'
+      ),
+      seq(
+        '[',
+        sep1(alias($._lambda_positional_destructuring_entry, $.variable_declaration), ','),
+        optional(','),
+        ']'
+      ),
+    ),
+
+    // An entry with `val` or `var` keeps the precedence of the full-form entries, so the two are explored together.
+    _lambda_name_based_destructuring_entry: $ => choice(
+      prec.left(PREC.VAR_DECL, seq(
+        $.binding_pattern_kind,
+        $.simple_identifier,
+        optional(seq(":", $._type)),
+        optional(seq("=", $.simple_identifier))
+      )),
+      seq(
+        $.simple_identifier,
+        optional(seq(":", $._type)),
+        optional(seq("=", $.simple_identifier))
+      ),
+    ),
+
+    _lambda_positional_destructuring_entry: $ => choice(
+      prec.left(PREC.VAR_DECL, seq(
+        $.binding_pattern_kind,
+        $.simple_identifier,
+        optional(seq(":", $._type))
+      )),
+      seq(
+        $.simple_identifier,
+        optional(seq(":", $._type))
+      ),
+    ),
+
+    anonymous_function: $ => prec.right(seq(
+      // The hint marks 'suspend' as a pending modifier so the ASI scanner
+      // does not split 'suspend fun() {}' with a _same_line_boundary; see
+      // the modifiers rule.
+      optional(seq("suspend", optional($._modifier_run_hint))),
+      "fun",
+      optional(seq(sep1($._simple_user_type, "."), ".")), // TODO
+      $.function_value_parameters,
+      optional(seq(":", $._type)),
+      optional($.function_body)
+    )),
+
+    _function_literal: $ => choice(
+      $.lambda_literal,
+      $.anonymous_function
+    ),
+
+    object_literal: $ => choice(
+      prec.dynamic(1, seq(
+        optional("data"),
+        "object",
+        optional(seq(":", $._delegation_specifiers)),
+        $.class_body,
+      )),
+      seq(
+        optional("data"),
+        "object",
+        optional(seq(":", $._delegation_specifiers)),
+      ),
+    ),
+
+    this_expression: $ => choice(
+      "this",
+      $._this_at
+    ),
+
+    super_expression: $ => prec.right(choice(
+      "super",
+      seq("super", "<", $._type, ">"),
+      $._super_at
+    )),
+
+    if_expression: $ => prec.right(seq(
+      "if",
+      "(", field('condition', $._expression), ")",
+      choice(
+        field('consequence', $.control_structure_body),
+        seq(
+          optional(field('consequence', $.control_structure_body)),
+          optional(";"),
+          "else",
+          choice(field('alternative', $.control_structure_body), ";")
+        ),
+        ";"
+      )
+    )),
+
+    when_subject: $ => seq(
+      "(",
+      optional(seq(
+        repeat($.annotation),
+        "val",
+        $.variable_declaration,
+        "="
+      )),
+      $._expression,
+      ")",
+    ),
+
+    when_expression: $ => seq(
+      "when",
+      optional($.when_subject),
+      "{",
+      repeat($.when_entry),
+      "}"
+    ),
+
+    when_entry: $ => seq(
+      choice(
+        // guard condition not allowed when multiple conditions are given
+        seq($.when_condition, repeat1(seq(",", $.when_condition)), optional(",")),
+        // optional guard condition and optional trailing comma
+        seq($.when_condition, optional($.guard_condition), optional(",")),
+        "else"
+      ),
+      "->",
+      $.control_structure_body,
+      optional($._semi)
+    ),
+
+    guard_condition: $ => seq("if", $._expression),
+
+    when_condition: $ => choice(
+      $._expression,
+      $.range_test,
+      $.type_test,
+    ),
+
+    range_test: $ => seq(optional("!"), $._in_operator, $._expression),
+
+    type_test: $ => seq(optional("!"), $._is_operator, $._type),
+
+    try_expression: $ => prec.right(seq(
+      "try",
+      $._block,
+      choice(
+        seq(repeat1($.catch_block), optional($.finally_block)),
+        $.finally_block
+      )
+    )),
+
+    catch_block: $ => seq(
+      "catch",
+      "(",
+      repeat($.annotation),
+      $.simple_identifier,
+      ":",
+      $._type,
+      ")",
+      $._block,
+    ),
+
+    finally_block: $ => seq("finally", $._block),
+
+    jump_expression: $ => choice(
+      prec.right(PREC.RETURN_OR_THROW, seq("throw", $._expression)),
+      prec.right(PREC.RETURN_OR_THROW, seq(
+        choice("return", $._return_at),
+        // The returned value can start with a declaration keyword (`return object : T {}`, `return fun() {}`), so the
+        // never-emitted hint keeps the scanner from ending the statement with a _same_line_boundary before it.
+        optional($._modifier_run_hint),
+        optional($._expression)
+      )),
+      "continue",
+      $._continue_at,
+      "break",
+      $._break_at
+    ),
+
+    callable_reference: $ => seq(
+      optional(alias($.simple_identifier, $.type_identifier)), // TODO
+      "::",
+      choice($.simple_identifier, "class")
+    ),
+
+    _assignment_and_operator: $ => choice("+=", "-=", "*=", "/=", "%="),
+
+    _equality_operator: $ => choice("!=", "!==", "==", "==="),
+
+    _comparison_operator: $ => choice("<", ">", "<=", ">="),
+
+    _in_operator: $ => "in",
+
+    _is_operator: $ => "is",
+
+    _additive_operator: $ => choice("+", "-"),
+
+    _multiplicative_operator: $ => choice("*", "/", "%"),
+
+    _as_operator: $ => choice("as", "as?"),
+
+    _prefix_unary_operator: $ => choice("++", "--", "-", "+", "!"),
+
+    _postfix_unary_operator: $ => choice("++", "--", "!!"),
+
+    // `?::` is a callable reference on a nullable receiver type (`String?::plus`). It is one token so that it wins over
+    // the elvis operator `?:`, matching the Kotlin lexer, which reads `?` and `::` there.
+    _member_access_operator: $ => choice(".", "::", "?.", "?::"),
+
+    _postfix_unary_suffix: $ => choice(
+      $._postfix_unary_operator,
+      $.navigation_suffix,
+      $.indexing_suffix
+    ),
+
+    _postfix_unary_expression: $ => seq($._primary_expression, repeat($._postfix_unary_suffix)),
+
+    directly_assignable_expression: $ => prec(
+      PREC.ASSIGNMENT,
+      choice(
+        $._postfix_unary_expression,
+        $.simple_identifier
+        // TODO
+      )
+    ),
+
+    // ==========
+    // Modifiers
+    // ==========
+
+    // _modifier_run_hint is never emitted by the scanner. Like
+    // _by_delegation_hint, it exists so valid_symbols flags the states where
+    // a modifier or annotation run is still in progress: there a following
+    // hard keyword ('internal class C', 'override fun f') belongs to this
+    // declaration, and the ASI scanner must not emit _same_line_boundary in
+    // front of it even though a parallel GLR head reads the modifier word as
+    // a complete expression statement. jump_expression uses it after `return`
+    // for the same reason.
+    // The prec.dynamic settles fork-split boundary ties: when an extra
+    // (e.g. a line comment) separates the GLR heads, each head lexes
+    // independently, so '@Marker internal class C' completes both as one
+    // modifier-led declaration and as an identifier-statement split via
+    // _same_line_boundary. The reading that keeps the modifiers must win.
+    // (A penalty on the boundary itself does not work: prec.dynamic on the
+    // hidden _semi choice is lost to inlining.)
+    modifiers: $ => prec.dynamic(1, prec.right(seq(
+      repeat1(prec.right(PREC.MODIFIERS, choice($.annotation, $._modifier))),
+      optional($._modifier_run_hint)
+    ))),
+
+    parameter_modifiers: $ => repeat1(choice($.annotation, $.parameter_modifier)),
+
+    _modifier: $ => choice(
+      $.class_modifier,
+      $.member_modifier,
+      $.visibility_modifier,
+      $.function_modifier,
+      $.property_modifier,
+      $.inheritance_modifier,
+      $.parameter_modifier,
+      $.platform_modifier,
+      $.context_parameters
+    ),
+
+    // Context parameters (KEEP-0367): `context(name: Type, ...)` on function
+    // and property declarations. Placed in the modifier set like the Kotlin
+    // grammar intends (`functionModifier | propertyModifier`), so the usual
+    // modifier ordering (`@A context(x: X) override fun f()`) just works.
+    // `context` stays a soft keyword: it remains an ordinary identifier
+    // everywhere else (BrokkAi/bifrost-dev#2760).
+    context_parameters: $ => seq(
+      "context",
+      "(",
+      sep1($.context_parameter, ","),
+      optional(","),
+      ")"
+    ),
+
+    // KEEP-0367: `name: Type`; `_` is a valid simple_identifier already, and
+    // parameters may carry annotations (`context(@A users: UserRepository)`).
+    // The bare `_type` alternative additionally accepts the legacy
+    // context-receiver form `context(Type)` (Kotlin 1.6-2.1 experimental,
+    // still widespread in pre-2.2 code — BrokkAi/bifrost-dev#2930). The two
+    // alternatives do not overlap: the named one requires a ':' after the
+    // identifier, and annotations on an unnamed entry are covered by the
+    // type's own type_modifiers.
+    context_parameter: $ => choice(
+      seq(repeat($.annotation), $.parameter),
+      $._type
+    ),
+
+    type_modifiers: $ => repeat1($._type_modifier),
+
+    _type_modifier: $ => choice($.annotation, "suspend"),
+
+    class_modifier: $ => choice(
+      "sealed",
+      "annotation",
+      "data",
+      "inner",
+      "value",
+    ),
+
+    member_modifier: $ => choice(
+      "override",
+      "lateinit"
+    ),
+
+    visibility_modifier: $ => choice(
+      "public",
+      "private",
+      "internal",
+      "protected"
+    ),
+
+    variance_modifier: $ => choice(
+      "in",
+      "out"
+    ),
+
+    type_parameter_modifiers: $ => repeat1($._type_parameter_modifier),
+
+    _type_parameter_modifier: $ => choice(
+      $.reification_modifier,
+      $.variance_modifier,
+      $.annotation
+    ),
+
+    function_modifier: $ => choice(
+      "tailrec",
+      "operator",
+      "infix",
+      "inline",
+      "external",
+      "suspend"
+    ),
+
+    property_modifier: $ => "const",
+
+    inheritance_modifier: $ => choice(
+      "abstract",
+      "final",
+      "open"
+    ),
+
+    parameter_modifier: $ => choice(
+      "vararg",
+      "noinline",
+      "crossinline"
+    ),
+
+    reification_modifier: $ => "reified",
+
+    platform_modifier: $ => choice(
+      "expect",
+      "actual"
+    ),
+
+    // ==========
+    // Annotations
+    // ==========
+
+    annotation: $ => choice(
+      $._single_annotation,
+      $._multi_annotation
+    ),
+
+    _single_annotation: $ => seq(
+      "@",
+      optional($.use_site_target),
+      $._unescaped_annotation
+    ),
+
+    _multi_annotation: $ => seq(
+      "@",
+      optional($.use_site_target),
+      "[",
+      repeat1($._unescaped_annotation),
+      "]"
+    ),
+
+    use_site_target: $ => seq(
+      choice("field", "property", "get", "set", "receiver", "param", "setparam", "delegate", "all"),
+      ":"
+    ),
+
+    _unescaped_annotation: $ => choice(
+      alias($._annotation_constructor_invocation, $.constructor_invocation),
+      $.user_type
+    ),
+
+    // ==========
+    // Identifiers
+    // ==========
+
+    simple_identifier: $ => choice(
+      $._lexical_identifier,
+      "expect",
+      "data",
+      "inner",
+      "value",
+      "actual",
+      "set",
+      "get",
+      "override",
+      "suspend",
+      // Batch 1: covered by existing conflict rules (class_modifier, member_modifier, function_modifier)
+      "annotation",
+      "sealed",
+      "lateinit",
+      "tailrec",
+      "operator",
+      "infix",
+      "inline",
+      "external",
+      // Batch 2: visibility modifiers
+      "public",
+      "private",
+      "internal",
+      "protected",
+      // Batch 3: inheritance modifiers
+      "abstract",
+      "final",
+      "open",
+      // Batch 4: property, parameter, reification modifiers
+      "const",
+      "vararg",
+      "noinline",
+      "crossinline",
+      "reified",
+      // Batch 5: annotation use-site targets (no conflict rules needed — disambiguated by ":")
+      "field",
+      "property",
+      "receiver",
+      "param",
+      "setparam",
+      "delegate",
+      // Batch 6: structural keywords used as identifiers
+      "companion",
+      "constructor",
+      "init",
+      "dynamic",
+      "where",
+      "catch",
+      "finally",
+      // Batch 7: enum
+      "enum",
+      // Batch 9: context parameters (KEEP-0367) — see the conflict rules
+      "context",
+      // Batch 8: variance modifiers — skipped, causes new break on SoftKeywordsInTypeArguments.kt
+      // "out", "in" — too ambiguous in type parameter contexts
+    ),
+
+    identifier: $ => sep1($.simple_identifier, "."),
+
+    // Adapted from tree-sitter-java, helps to avoid a conflic with
+    // wildcard_import node while being compatible with identifier
+    _import_identifier: $ => choice(
+      $.simple_identifier,
+      seq($._import_identifier, $._import_dot, $.simple_identifier),
+    ),
+
+    // ====================
+    // Lexical grammar
+    // ====================
+
+
+    // ==========
+    // General
+    // ==========
+
+    line_comment: $ => token(seq('//', /.*/)),
+
+    // `multiline_comment` is an external token (src/scanner.c) so that nested
+    // and unterminated comments can be handled. This internal definition
+    // covers terminated comments nested up to 4 levels deep (in sync with
+    // MAX_INTERNAL_COMMENT_DEPTH in src/scanner.c) and gives tree-sitter's
+    // own lexer a fallback for when the external scanner declines a token —
+    // e.g. when scan_automatic_semicolon has skipped a comment to look at the
+    // token behind it and reports "no semicolon here".
+    multiline_comment: _ => token(blockComment(4)),
+
+    // ==========
+    // Separators and operations
+    // ==========
+
+
+    // ==========
+    // Keywords
+    // ==========
+
+    _return_at: $ => seq(
+      "return@",
+      alias($._lexical_identifier, $.label)
+    ),
+
+    _continue_at: $ => seq(
+      "continue@",
+      alias($._lexical_identifier, $.label)
+    ),
+
+    _break_at: $ => seq(
+      "break@",
+      alias($._lexical_identifier, $.label)
+    ),
+
+    _this_at: $ => seq(
+      "this@",
+      alias($._lexical_identifier, $.type_identifier)
+    ),
+
+    _super_at: $ => choice(
+      seq(
+        "super@",
+        alias($._lexical_identifier, $.type_identifier)
+      ),
+      seq(
+        "super",
+        "<", $._type, ">",
+        token.immediate("@"),
+        alias($._lexical_identifier, $.type_identifier)
+      )
+    ),
+
+    // ==========
+    // Literals
+    // ==========
+
+    real_literal: $ => token(choice(
+      seq(
+        choice(
+          seq(DEC_DIGITS, REAL_EXPONENT),
+          seq(optional(DEC_DIGITS), ".", DEC_DIGITS, optional(REAL_EXPONENT))
+        ),
+        optional(/[fF]/)
+      ),
+      seq(DEC_DIGITS, /[fF]/)
+    )),
+
+    integer_literal: $ => token(seq(optional(/[1-9]/), DEC_DIGITS)),
+
+    hex_literal: $ => token(seq("0", /[xX]/, HEX_DIGITS)),
+
+    bin_literal: $ => token(seq("0", /[bB]/, BIN_DIGITS)),
+
+    unsigned_literal: $ => seq(
+      choice($.integer_literal, $.hex_literal, $.bin_literal),
+      /[uU]L?/
+    ),
+
+    long_literal: $ => seq(
+      choice($.integer_literal, $.hex_literal, $.bin_literal),
+      "L"
+    ),
+
+    boolean_literal: $ => choice("true", "false"),
+
+    character_literal: $ => seq(
+      "'",
+      choice($.character_escape_seq, /[^\n\r'\\]/),
+      "'"
+    ),
+
+    character_escape_seq: $ => choice(
+      $._uni_character_literal,
+      $._escaped_identifier
+    ),
+
+    null_literal: $ => "null",
+
+    // ==========
+    // Identifiers
+    // ==========
+
+    _lexical_identifier: $ => choice(
+      $._alpha_identifier,
+      $._backtick_identifier,
+    ),
+
+    _alpha_identifier: $ => /[\p{L}_][\p{L}_\p{Nd}]*/,
+
+    _backtick_identifier: $ => /`[^\r\n`]+`/,
+
+    _uni_character_literal: $ => seq(
+      "\\u",
+      /[0-9a-fA-F]{4}/
+    ),
+
+    _escaped_identifier: $ => /\\[tbrn'"\\$]/,
+
+  }
+});
+
+function sep1(rule, separator) {
+  return seq(rule, repeat(seq(separator, rule)));
+}
+
+// A terminated block comment that contains nested block comments up to `depth` levels deep in total, read like the
+// Kotlin lexer and the external scanner do: from left to right, `*/` closes and `/*` opens, so the body never has a
+// `*` directly before `/` or a `/` directly before `*` outside a nested comment.
+function blockComment(depth) {
+  const body = [/[^*\/]/, /\*+[^*\/]/, /\/+[^*\/]/];
+  if (depth > 1) body.push(seq(optional(/\/+/), blockComment(depth - 1)));
+  return seq('/*', repeat(choice(...body)), /\*+\//);
+}

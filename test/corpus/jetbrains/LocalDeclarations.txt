@@ -1,0 +1,68 @@
+==================
+LocalDeclarations
+==================
+
+// COMPILATION_ERRORS
+
+fun foo() {
+    out
+    1
+    @a abstract class foof {}
+    abstract @a class foof {}
+
+    out val foo = 5
+    @a var foo = 4
+    typealias f =  T.() -> Unit
+}
+
+---
+
+(source_file
+  (line_comment)
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (simple_identifier)
+        (integer_literal)
+        (class_declaration
+          (modifiers
+            (annotation
+              (user_type
+                (type_identifier)))
+            (inheritance_modifier))
+          (type_identifier)
+          (class_body))
+        (class_declaration
+          (modifiers
+            (inheritance_modifier)
+            (annotation
+              (user_type
+                (type_identifier))))
+          (type_identifier)
+          (class_body))
+        (simple_identifier)
+        (property_declaration
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (property_declaration
+          (modifiers
+            (annotation
+              (user_type
+                (type_identifier))))
+          (binding_pattern_kind)
+          (variable_declaration
+            (simple_identifier))
+          (integer_literal))
+        (type_alias
+          (type_identifier)
+          (function_type
+            receiver: (receiver_type
+              (user_type
+                (type_identifier)))
+            (function_type_parameters)
+            (user_type
+              (type_identifier))))))))

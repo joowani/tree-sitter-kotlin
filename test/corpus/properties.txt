@@ -1,0 +1,36 @@
+================================================================================
+Setter parameter with a trailing comma
+================================================================================
+
+class A {
+    var x: Int
+        get() = 10
+        set(value,) {
+            field = value
+        }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (class_body
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier))))
+      (getter
+        (function_body
+          (integer_literal)))
+      (setter
+        (parameter_with_optional_type
+          (simple_identifier))
+        (function_body
+          (statements
+            (assignment
+              (directly_assignable_expression
+                (simple_identifier))
+              (simple_identifier))))))))

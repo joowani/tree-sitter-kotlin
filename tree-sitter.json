@@ -1,0 +1,29 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "kotlin",
+      "camelcase": "Kotlin",
+      "title": "Kotlin",
+      "scope": "source.kotlin",
+      "path": ".",
+      "file-types": ["kt", "kts"],
+      "highlights": "queries/highlights.scm",
+      "tags": "queries/tags.scm",
+      "injection-regex": "^(kt|kts|kotlin)$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Kotlin grammar for tree-sitter",
+    "authors": [
+      {
+        "name": "Joohwan Oh",
+        "email": "joohwan.oh@outlook.com"
+      }
+    ],
+    "links": { "repository": "https://github.com/joowani/tree-sitter-kotlin" }
+  },
+  "bindings": { "c": true, "go": true, "java": false, "node": true, "python": true, "rust": true, "swift": true, "zig": false }
+}

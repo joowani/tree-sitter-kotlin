@@ -1,0 +1,55 @@
+# Rust artifacts
+target/
+
+# Node artifacts
+build/
+prebuilds/
+node_modules/
+
+# Swift artifacts
+.build/
+.swiftpm/
+Package.resolved
+
+# Go artifacts
+_obj/
+
+# Python artifacts
+.venv/
+__pycache__/
+dist/
+*.egg-info
+*.whl
+
+# C artifacts
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.pc
+*.exp
+*.lib
+
+# Grammar volatiles (`log.html` is written by `tree-sitter parse --debug-graph`)
+*.wasm
+*.obj
+*.o
+log.html
+
+# Archives
+*.tar.gz
+*.tgz
+*.zip
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+
+# Cross-validation: fixtures are fetched by `npm run vendor-fixtures`, and the report is written by
+# `npm run cross-validate`
+tools/cross-validation/fixtures/
+tools/cross-validation/report.md

@@ -1,0 +1,95 @@
+================================================================================
+Extra semicolons before and between statements and members
+================================================================================
+
+class A : B() {;
+    fun f() {};; val x = 1
+}
+
+fun g() {; h();;
+    ;
+    i()
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (class_declaration
+    (type_identifier)
+    (delegation_specifier
+      (constructor_invocation
+        (user_type
+          (type_identifier))
+        (value_arguments)))
+    (class_body
+      (function_declaration
+        (simple_identifier)
+        (function_value_parameters)
+        (function_body))
+      (property_declaration
+        (binding_pattern_kind)
+        (variable_declaration
+          (simple_identifier))
+        (integer_literal))))
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))))))
+
+================================================================================
+Semicolons between top-level declarations and in otherwise empty bodies
+================================================================================
+
+val a = 1;; val b = 2
+;
+class A { ; }
+enum class E { X;; }
+fun f() { ; }
+val g = { x: Int -> ;; x }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal))
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (integer_literal))
+  (class_declaration
+    (type_identifier)
+    (class_body))
+  (class_declaration
+    (type_identifier)
+    (enum_class_body
+      (enum_entry
+        (simple_identifier))))
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body))
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (lambda_literal
+      (lambda_parameters
+        (variable_declaration
+          (simple_identifier)
+          (user_type
+            (type_identifier))))
+      (statements
+        (simple_identifier)))))

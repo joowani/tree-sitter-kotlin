@@ -1,0 +1,164 @@
+================================================================================
+For statements
+================================================================================
+
+for (value in values) {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (for_statement
+    (variable_declaration
+      (simple_identifier))
+    (simple_identifier)
+    (control_structure_body)))
+
+================================================================================
+Statements separated by semicolon
+================================================================================
+
+override fun isDisposed(): Boolean { expectUnreached();  return false }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (modifiers
+      (member_modifier))
+    (simple_identifier)
+    (function_value_parameters)
+    (user_type
+      (type_identifier))
+    (function_body
+      (statements
+        (call_expression
+          (simple_identifier)
+          (call_suffix
+            (value_arguments)))
+        (jump_expression
+          (boolean_literal))))))
+
+================================================================================
+Getters
+================================================================================
+
+val x get () = 2
+
+val ty x get () = 3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (property_declaration
+    (binding_pattern_kind)
+    (variable_declaration
+      (simple_identifier))
+    (getter
+      (function_body
+        (integer_literal))))
+  (property_declaration
+    (binding_pattern_kind)
+    (receiver_type
+      (user_type
+        (type_identifier)))
+    (variable_declaration
+      (simple_identifier))
+    (getter
+      (function_body
+        (integer_literal)))))
+
+================================================================================
+A return value that starts with object or fun
+================================================================================
+
+fun comparator(): Comparator<Int> {
+    return object : Comparator<Int> {
+        override fun compare(a: Int, b: Int) = a - b
+    }
+}
+
+fun handler() = run { return@run fun(x: Int) = x }
+
+fun fallback(x: Any?) = x ?: return object : Exception() {}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (user_type
+      (type_identifier)
+      (type_arguments
+        (type_projection
+          (user_type
+            (type_identifier)))))
+    (function_body
+      (statements
+        (jump_expression
+          (object_literal
+            (delegation_specifier
+              (user_type
+                (type_identifier)
+                (type_arguments
+                  (type_projection
+                    (user_type
+                      (type_identifier))))))
+            (class_body
+              (function_declaration
+                (modifiers
+                  (member_modifier))
+                (simple_identifier)
+                (function_value_parameters
+                  (parameter
+                    (simple_identifier)
+                    (user_type
+                      (type_identifier)))
+                  (parameter
+                    (simple_identifier)
+                    (user_type
+                      (type_identifier))))
+                (function_body
+                  (additive_expression
+                    (simple_identifier)
+                    (simple_identifier))))))))))
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters)
+    (function_body
+      (call_expression
+        (simple_identifier)
+        (call_suffix
+          (annotated_lambda
+            (lambda_literal
+              (statements
+                (jump_expression
+                  (label)
+                  (anonymous_function
+                    (function_value_parameters
+                      (parameter
+                        (simple_identifier)
+                        (user_type
+                          (type_identifier))))
+                    (function_body
+                      (simple_identifier)))))))))))
+  (function_declaration
+    (simple_identifier)
+    (function_value_parameters
+      (parameter
+        (simple_identifier)
+        (nullable_type
+          (user_type
+            (type_identifier))
+          (quest))))
+    (function_body
+      (elvis_expression
+        (simple_identifier)
+        (jump_expression
+          (object_literal
+            (delegation_specifier
+              (constructor_invocation
+                (user_type
+                  (type_identifier))
+                (value_arguments)))
+            (class_body)))))))

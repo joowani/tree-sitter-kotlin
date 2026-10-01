@@ -1,0 +1,26 @@
+[package]
+name = "tree-sitter-kt"
+description = "Kotlin grammar for tree-sitter"
+version = "0.1.0"
+authors = ["Joohwan Oh <joohwan.oh@outlook.com>"]
+license = "MIT"
+autoexamples = false
+categories = [ "parser-implementations", "parsing", "text-editors" ]
+edition = "2024"
+keywords = [ "incremental", "parsing", "tree-sitter", "kotlin" ]
+readme = "README.md"
+repository = "https://github.com/joowani/tree-sitter-kotlin"
+build = "bindings/rust/build.rs"
+include = [ "/bindings/rust/*", "/grammar.js", "/queries/*", "/src/*", "/tree-sitter.json", "/LICENSE" ]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1.2"
+
+[dev-dependencies]
+tree-sitter = "0.27.0"
