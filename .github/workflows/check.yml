@@ -37,6 +37,11 @@ jobs:
           go-version: '1.26.0'
           cache: true
 
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: '0.16.0'
+
       - name: Install Node dependencies
         run: npm ci
 
@@ -68,6 +73,9 @@ jobs:
 
       - name: Test Go binding
         run: go test -mod=readonly ./...
+
+      - name: Test Zig binding
+        run: zig build test -Dtest
 
       - name: Verify crate package
         run: cargo publish --locked --dry-run

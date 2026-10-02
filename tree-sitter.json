@@ -7,7 +7,10 @@
       "title": "Kotlin",
       "scope": "source.kotlin",
       "path": ".",
-      "file-types": ["kt", "kts"],
+      "file-types": [
+        "kt",
+        "kts"
+      ],
       "highlights": "queries/highlights.scm",
       "tags": "queries/tags.scm",
       "injection-regex": "^(kt|kts|kotlin)$"
@@ -23,7 +26,18 @@
         "email": "joohwan.oh@outlook.com"
       }
     ],
-    "links": { "repository": "https://github.com/joowani/tree-sitter-kotlin" }
+    "links": {
+      "repository": "https://github.com/joowani/tree-sitter-kotlin"
+    }
   },
-  "bindings": { "c": true, "go": true, "java": false, "node": true, "python": true, "rust": true, "swift": true, "zig": false }
+  "bindings": {
+    "c": true,
+    "go": true,
+    "java": false,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true,
+    "zig": true
+  }
 }
